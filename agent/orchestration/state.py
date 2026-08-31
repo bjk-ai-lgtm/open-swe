@@ -3,7 +3,11 @@
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
-from agent.routing import ExecutionPlan, SpecialistRole
+from agent.routing import (
+    ExecutionPlan,
+    SpecialistRole,
+    has_next_escalation,
+)
 
 
 class TaskStatus(StrEnum):
@@ -34,13 +38,18 @@ class ExecutionState:
     status: TaskStatus = TaskStatus.PENDING
     attempt: int = 0
     validation_failures: int = 0
-    escalated: bool = False
+    escalation_level: int = 0
     last_failure: str | None = None
 
     @property
     def terminal(self) -> bool:
         """Return whether this task can no longer transition normally."""
         return self.status in TERMINAL_STATUSES
+
+    @property
+    def escalated(self) -> bool:
+        """Return whether execution has moved beyond the primary model."""
+        return self.escalation_level > 0
 
     @property
     def current_role(self) -> SpecialistRole:
@@ -72,15 +81,21 @@ def begin_attempt(state: ExecutionState) -> ExecutionState:
 
 
 def begin_escalated_attempt(state: ExecutionState) -> ExecutionState:
-    """Begin the stronger-model attempt after normal retries are exhausted."""
+    """Begin the next stronger capability-tier attempt."""
     if state.status is not TaskStatus.ESCALATION_REQUIRED:
         raise ValueError(f"Cannot begin escalated attempt from status {state.status}")
+
+    if not has_next_escalation(
+        state.plan.primary_role,
+        state.escalation_level,
+    ):
+        raise ValueError("No further capability escalation is available")
 
     return replace(
         state,
         status=TaskStatus.RUNNING,
         attempt=state.attempt + 1,
-        escalated=True,
+        escalation_level=state.escalation_level + 1,
     )
 
 
@@ -122,6 +137,17 @@ def record_validation_result(
     reason = failure_reason or "Validation failed"
 
     if state.escalated:
+        if has_next_escalation(
+            state.plan.primary_role,
+            state.escalation_level,
+        ):
+            return replace(
+                state,
+                status=TaskStatus.ESCALATION_REQUIRED,
+                validation_failures=failures,
+                last_failure=reason,
+            )
+
         return replace(
             state,
             status=TaskStatus.QUARANTINED,
@@ -137,9 +163,20 @@ def record_validation_result(
             last_failure=reason,
         )
 
+    if has_next_escalation(
+        state.plan.primary_role,
+        state.escalation_level,
+    ):
+        return replace(
+            state,
+            status=TaskStatus.ESCALATION_REQUIRED,
+            validation_failures=failures,
+            last_failure=reason,
+        )
+
     return replace(
         state,
-        status=TaskStatus.ESCALATION_REQUIRED,
+        status=TaskStatus.QUARANTINED,
         validation_failures=failures,
         last_failure=reason,
     )

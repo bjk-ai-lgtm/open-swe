@@ -68,7 +68,7 @@ def test_backend_exhausts_retries_then_requires_escalation() -> None:
     assert state.attempt == 3
 
 
-def test_failed_escalated_attempt_is_quarantined() -> None:
+def test_failed_first_escalation_requests_next_escalation() -> None:
     state = backend_state()
 
     for _ in range(3):
@@ -83,6 +83,7 @@ def test_failed_escalated_attempt_is_quarantined() -> None:
     state = begin_escalated_attempt(state)
 
     assert state.escalated is True
+    assert state.escalation_level == 1
     assert state.status is TaskStatus.RUNNING
 
     state = mark_execution_complete(state)
@@ -90,12 +91,52 @@ def test_failed_escalated_attempt_is_quarantined() -> None:
     state = record_validation_result(
         state,
         passed=False,
-        failure_reason="Escalated model could not fix the task",
+        failure_reason="Sol could not fix the task",
+    )
+
+    assert state.status is TaskStatus.ESCALATION_REQUIRED
+    assert state.terminal is False
+    assert state.escalation_level == 1
+
+
+def test_failed_final_escalation_is_quarantined() -> None:
+    state = backend_state()
+
+    for _ in range(3):
+        state = begin_attempt(state)
+        state = mark_execution_complete(state)
+        state = record_validation_result(
+            state,
+            passed=False,
+            failure_reason="Tests still failing",
+        )
+
+    state = begin_escalated_attempt(state)
+    state = mark_execution_complete(state)
+    state = record_validation_result(
+        state,
+        passed=False,
+        failure_reason="Sol could not fix the task",
+    )
+
+    assert state.status is TaskStatus.ESCALATION_REQUIRED
+
+    state = begin_escalated_attempt(state)
+
+    assert state.escalation_level == 2
+    assert state.status is TaskStatus.RUNNING
+
+    state = mark_execution_complete(state)
+
+    state = record_validation_result(
+        state,
+        passed=False,
+        failure_reason="Opus could not fix the task",
     )
 
     assert state.status is TaskStatus.QUARANTINED
     assert state.terminal is True
-    assert state.last_failure == "Escalated model could not fix the task"
+    assert state.last_failure == "Opus could not fix the task"
 
 
 def test_research_task_succeeds_without_qa_gate() -> None:
