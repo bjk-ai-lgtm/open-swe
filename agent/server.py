@@ -132,6 +132,7 @@ from .runtime.constants import (
     DEFAULT_LLM_MODEL_ID as DEFAULT_LLM_MODEL_ID,
 )
 from .runtime.execution import graph_loaded_for_execution
+from .specialist_agents import build_v01_specialists
 from .thread_title import TITLE_GENERATION_MAX_TOKENS, schedule_thread_title_generation
 from .tools import (
     approve_plan,
@@ -1754,6 +1755,16 @@ async def get_agent(config: RunnableConfig) -> Pregel:
         for tool in static_tools
         if tool is not background_execute and tool is not background_task
     ]
+
+    specialist_tools = [tool for tool in subagent_tools if not _is_subagent_excluded_tool(tool)]
+    specialist_middleware = cast(
+        list[AgentMiddleware[Any, Any, Any]],
+        [
+            ExcludeToolsMiddleware(excluded=DEEP_AGENT_EXCLUDED_TOOLS),
+            *_subagent_model_middleware(),
+        ],
+    )
+
     title_model = _make_model_or_defer(
         title_model_id,
         use_gateway=use_gateway,
@@ -1770,6 +1781,12 @@ async def get_agent(config: RunnableConfig) -> Pregel:
                 skills=skill_sources,
                 dynamic_tools=dynamic_tool_middleware,
                 sandbox_file_downloads=sandbox_file_downloads,
+            ),
+            *build_v01_specialists(
+                subagent_model,
+                tools=specialist_tools,
+                skills=skill_sources,
+                middleware=specialist_middleware,
             ),
             *([_browser_subagent(subagent_model, browser_tools)] if browser_tools else []),
         ],

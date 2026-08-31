@@ -74,3 +74,20 @@ def test_qa_agent_requires_verification() -> None:
 
     assert "unproven until verified" in agent["system_prompt"]
     assert "Return PASS only" in agent["system_prompt"]
+
+
+def test_v01_registry_builds_expected_specialists() -> None:
+    from agent.specialist_agents import build_v01_specialists
+
+    model = make_model()
+
+    agents = build_v01_specialists(
+        model,
+        tools=[],
+    )
+
+    assert [agent["name"] for agent in agents] == [
+        "backend-engineer",
+        "research-specialist",
+        "qa-engineer",
+    ]
