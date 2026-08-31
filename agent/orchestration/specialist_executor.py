@@ -10,11 +10,20 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 
+from agent.middleware import ExcludeToolsMiddleware
 from agent.routing import SpecialistRole
 from agent.specialist_agents import build_v01_specialists
 from agent.utils.model import make_model
 
 from .coordinator import SpecialistExecutionResult
+
+
+class SpecialistNoDelegationMiddleware(ExcludeToolsMiddleware):
+    """Prevent routed specialists from spawning their own subagents."""
+
+    def __init__(self) -> None:
+        super().__init__(excluded=frozenset({"task"}))
+
 
 ModelFactory = Callable[[str], BaseChatModel]
 AgentFactory = Callable[..., Any]
@@ -161,7 +170,10 @@ class OpenSWESpecialistExecutor:
             tools=spec.get("tools", []),
             skills=spec.get("skills"),
             backend=self._backend,
-            middleware=spec.get("middleware", []),
+            middleware=[
+                *spec.get("middleware", []),
+                SpecialistNoDelegationMiddleware(),
+            ],
             subagents=[],
         )
 

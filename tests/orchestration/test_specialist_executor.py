@@ -108,3 +108,40 @@ async def test_executor_supports_general_fallback_role() -> None:
     )
 
     assert result.success is True
+
+
+async def test_executor_blocks_specialist_subdelegation() -> None:
+    captured = {}
+
+    def model_factory(model_id):
+        return object()
+
+    class FakeAgent:
+        async def ainvoke(self, state, config):
+            return {"messages": []}
+
+    def agent_factory(**kwargs):
+        captured.update(kwargs)
+        return FakeAgent()
+
+    executor = OpenSWESpecialistExecutor(
+        backend=object(),
+        tools=[],
+        model_factory=model_factory,
+        agent_factory=agent_factory,
+    )
+
+    await executor.execute(
+        thread_id="thread-guard",
+        work_dir="/workspace/project",
+        task="Implement an API.",
+        role=SpecialistRole.BACKEND,
+        model_id="openai:gpt-5.6-terra",
+        attempt=1,
+        escalation_level=0,
+        previous_failure=None,
+    )
+
+    middleware_names = {type(middleware).__name__ for middleware in captured["middleware"]}
+
+    assert "SpecialistNoDelegationMiddleware" in middleware_names
