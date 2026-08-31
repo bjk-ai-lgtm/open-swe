@@ -37,6 +37,7 @@ class ExecutionState:
     plan: ExecutionPlan
     status: TaskStatus = TaskStatus.PENDING
     attempt: int = 0
+    execution_failures: int = 0
     validation_failures: int = 0
     escalation_level: int = 0
     last_failure: str | None = None
@@ -96,6 +97,64 @@ def begin_escalated_attempt(state: ExecutionState) -> ExecutionState:
         status=TaskStatus.RUNNING,
         attempt=state.attempt + 1,
         escalation_level=state.escalation_level + 1,
+    )
+
+
+def record_execution_failure(
+    state: ExecutionState,
+    *,
+    failure_reason: str | None = None,
+) -> ExecutionState:
+    """Record a failed specialist attempt without crashing orchestration."""
+    if state.status is not TaskStatus.RUNNING:
+        raise ValueError(f"Cannot record execution failure from status {state.status}")
+
+    failures = state.execution_failures + 1
+    reason = failure_reason or "Specialist execution failed"
+
+    if state.escalated:
+        if has_next_escalation(
+            state.plan.primary_role,
+            state.escalation_level,
+        ):
+            return replace(
+                state,
+                status=TaskStatus.ESCALATION_REQUIRED,
+                execution_failures=failures,
+                last_failure=reason,
+            )
+
+        return replace(
+            state,
+            status=TaskStatus.QUARANTINED,
+            execution_failures=failures,
+            last_failure=reason,
+        )
+
+    if failures <= state.plan.validation.max_retries:
+        return replace(
+            state,
+            status=TaskStatus.RETRY_REQUIRED,
+            execution_failures=failures,
+            last_failure=reason,
+        )
+
+    if has_next_escalation(
+        state.plan.primary_role,
+        state.escalation_level,
+    ):
+        return replace(
+            state,
+            status=TaskStatus.ESCALATION_REQUIRED,
+            execution_failures=failures,
+            last_failure=reason,
+        )
+
+    return replace(
+        state,
+        status=TaskStatus.QUARANTINED,
+        execution_failures=failures,
+        last_failure=reason,
     )
 
 

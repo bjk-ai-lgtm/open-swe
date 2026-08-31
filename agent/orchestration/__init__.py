@@ -8,6 +8,7 @@ from .state import (
     create_execution_state,
     mark_execution_complete,
     quarantine_task,
+    record_execution_failure,
     record_validation_result,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "create_execution_state",
     "mark_execution_complete",
     "quarantine_task",
+    "record_execution_failure",
     "record_validation_result",
 ]
