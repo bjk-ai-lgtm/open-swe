@@ -5,10 +5,7 @@ from typing import Any
 
 from langchain.agents.middleware.types import AgentMiddleware
 
-from agent.validation import (
-    OPEN_SWE_PYTHON_CHECKS,
-    ValidationCheck,
-)
+from agent.validation import ValidationCheck
 
 from .bootstrap import OrchestratorRuntimeContext
 from .server_bridge import (
@@ -27,7 +24,7 @@ def build_runtime_orchestration_service(
     skills: list[str] | None = None,
     middleware: Sequence[AgentMiddleware[Any, Any, Any]] | None = None,
     use_gateway: bool | None = None,
-    checks: Sequence[ValidationCheck] = OPEN_SWE_PYTHON_CHECKS,
+    checks: Sequence[ValidationCheck],
     model_factory: ModelFactory | None = None,
     agent_factory: AgentFactory | None = None,
     runner_factory: RunnerFactory | None = None,

@@ -1,0 +1,180 @@
+import pytest
+from langchain_core.messages import HumanMessage
+
+from agent.orchestration.bootstrap import (
+    OrchestratorRuntimeContext,
+)
+from agent.orchestration.coordinator import (
+    AttemptRecord,
+    CoordinatorResult,
+    SpecialistExecutionResult,
+)
+from agent.orchestration.factory import get_orchestrator
+from agent.orchestration.state import ExecutionState, TaskStatus
+from agent.routing import SpecialistRole, build_execution_plan
+
+
+def successful_result() -> CoordinatorResult:
+    plan = build_execution_plan("Implement a REST API backed by the database.")
+
+    state = ExecutionState(
+        plan=plan,
+        status=TaskStatus.SUCCEEDED,
+        attempt=1,
+    )
+
+    attempt = AttemptRecord(
+        attempt=1,
+        role=SpecialistRole.BACKEND,
+        model_id="openai:gpt-5.6-terra",
+        escalation_level=0,
+        execution=SpecialistExecutionResult(
+            success=True,
+            summary="factory task complete",
+        ),
+        validation=None,
+    )
+
+    return CoordinatorResult(
+        state=state,
+        attempts=(attempt,),
+    )
+
+
+class FakeService:
+    def __init__(self):
+        self.calls = []
+
+    async def run(self, *, task, work_dir):
+        self.calls.append(
+            {
+                "task": task,
+                "work_dir": work_dir,
+            }
+        )
+        return successful_result()
+
+
+async def test_factory_builds_execution_graph_from_runtime_context():
+    backend = object()
+
+    context = OrchestratorRuntimeContext(
+        thread_id="thread-factory",
+        sandbox_backend=backend,
+        work_dir="/workspace/project",
+    )
+
+    service = FakeService()
+    captured = {}
+
+    async def bootstrap(config):
+        captured["bootstrap_config"] = config
+        return context
+
+    def service_factory(received_context, **kwargs):
+        captured["context"] = received_context
+        captured["kwargs"] = kwargs
+        return service
+
+    config = {
+        "configurable": {
+            "thread_id": "thread-factory",
+            "orchestrator_validation_profile": ("open-swe-python"),
+        }
+    }
+
+    graph = await get_orchestrator(
+        config,
+        bootstrap=bootstrap,
+        service_factory=service_factory,
+    )
+
+    result = await graph.ainvoke(
+        {"messages": [HumanMessage(content=("Implement a REST API backed by the database."))]}
+    )
+
+    assert captured["context"] is context
+    assert captured["kwargs"]["tools"] == ()
+
+    checks = captured["kwargs"]["checks"]
+    assert checks
+
+    assert service.calls == [
+        {
+            "task": ("Implement a REST API backed by the database."),
+            "work_dir": "/workspace/project",
+        }
+    ]
+
+    assert result["orchestration_status"] == "succeeded"
+    assert result["messages"][-1].content == ("factory task complete")
+
+
+async def test_factory_schema_load_does_not_build_runtime_service():
+    calls = []
+
+    async def bootstrap(config):
+        return None
+
+    def service_factory(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("service factory must not run for schema loads")
+
+    graph = await get_orchestrator(
+        {
+            "configurable": {},
+        },
+        bootstrap=bootstrap,
+        service_factory=service_factory,
+    )
+
+    assert graph is not None
+    assert calls == []
+
+
+async def test_factory_defaults_to_no_validation_profile():
+    context = OrchestratorRuntimeContext(
+        thread_id="thread-none",
+        sandbox_backend=object(),
+        work_dir="/workspace/project",
+    )
+
+    captured = {}
+
+    async def bootstrap(config):
+        return context
+
+    def service_factory(received_context, **kwargs):
+        captured["checks"] = kwargs["checks"]
+        return FakeService()
+
+    await get_orchestrator(
+        {
+            "configurable": {
+                "thread_id": "thread-none",
+            }
+        },
+        bootstrap=bootstrap,
+        service_factory=service_factory,
+    )
+
+    assert captured["checks"] == ()
+
+
+async def test_factory_rejects_unknown_validation_profile():
+    async def bootstrap(config):
+        raise AssertionError("bootstrap must not run for invalid profile")
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported validation profile",
+    ):
+        await get_orchestrator(
+            {
+                "configurable": {
+                    "thread_id": "thread-invalid",
+                    "orchestrator_validation_profile": ("javascript-magic"),
+                }
+            },
+            bootstrap=bootstrap,
+        )

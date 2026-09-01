@@ -91,6 +91,7 @@ def test_runtime_service_preserves_exact_backend() -> None:
     service = build_runtime_orchestration_service(
         context,
         tools=[],
+        checks=(),
         model_factory=lambda model_id: object(),
     )
 
