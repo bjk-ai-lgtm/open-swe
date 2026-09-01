@@ -171,3 +171,35 @@ async def test_graph_rejects_missing_human_task() -> None:
     assert service.calls == []
     assert result["orchestration_status"] == "invalid-input"
     assert result["orchestration_attempts"] == 0
+
+
+async def test_graph_dry_run_plans_without_executing() -> None:
+    service = FakeService(
+        make_result(
+            status=TaskStatus.SUCCEEDED,
+            summary="must not execute",
+        )
+    )
+
+    graph = build_orchestrator_graph(
+        service=service,
+        work_dir="/workspace/project",
+        dry_run=True,
+    )
+
+    result = await graph.ainvoke(
+        {
+            "messages": [
+                HumanMessage(content=("Implement a REST API endpoint backed by the database."))
+            ]
+        }
+    )
+
+    assert service.calls == []
+
+    assert result["orchestration_status"] == ("planned")
+    assert result["orchestration_mode"] == ("dry-run")
+    assert result["orchestration_role"] == ("backend-engineer")
+    assert result["orchestration_model_id"] == ("openai:gpt-5.6-terra")
+    assert result["orchestration_validation_required"] is True
+    assert result["orchestration_attempts"] == 0

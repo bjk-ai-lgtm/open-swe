@@ -178,3 +178,36 @@ async def test_factory_rejects_unknown_validation_profile():
             },
             bootstrap=bootstrap,
         )
+
+
+async def test_factory_dry_run_does_not_build_service():
+    service_calls = []
+
+    async def bootstrap(config):
+        raise AssertionError("dry-run must not bootstrap a sandbox")
+
+    def service_factory(*args, **kwargs):
+        service_calls.append((args, kwargs))
+        raise AssertionError("dry-run must not build execution service")
+
+    graph = await get_orchestrator(
+        {
+            "configurable": {
+                "thread_id": "thread-dry-run",
+                "orchestrator_dry_run": True,
+            }
+        },
+        bootstrap=bootstrap,
+        service_factory=service_factory,
+    )
+
+    result = await graph.ainvoke(
+        {
+            "messages": [
+                HumanMessage(content=("Implement a REST API endpoint backed by the database."))
+            ]
+        }
+    )
+
+    assert service_calls == []
+    assert result["orchestration_status"] == ("planned")

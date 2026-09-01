@@ -5,6 +5,8 @@ from typing import NotRequired, Protocol
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 
+from agent.routing import build_execution_plan, model_for_role
+
 from .coordinator import CoordinatorResult
 from .state import TaskStatus
 
@@ -27,6 +29,10 @@ class OrchestratorGraphState(MessagesState):
     orchestration_attempts: NotRequired[int]
     orchestration_escalation_level: NotRequired[int]
     orchestration_last_failure: NotRequired[str | None]
+    orchestration_mode: NotRequired[str]
+    orchestration_role: NotRequired[str | None]
+    orchestration_model_id: NotRequired[str | None]
+    orchestration_validation_required: NotRequired[bool]
 
 
 def _latest_human_task(
@@ -65,6 +71,7 @@ def build_orchestrator_graph(
     *,
     service: OrchestrationService,
     work_dir: str,
+    dry_run: bool = False,
 ):
     """Build the deterministic orchestration graph."""
     if not work_dir.strip():
@@ -82,6 +89,42 @@ def build_orchestrator_graph(
                 "orchestration_attempts": 0,
                 "orchestration_escalation_level": 0,
                 "orchestration_last_failure": ("No non-empty human task was found"),
+                "orchestration_mode": ("dry-run" if dry_run else "execute"),
+                "orchestration_role": None,
+                "orchestration_model_id": None,
+                "orchestration_validation_required": False,
+            }
+
+        if dry_run:
+            plan = build_execution_plan(task)
+
+            model_id = model_for_role(
+                plan.primary_role,
+                escalation_level=0,
+            )
+
+            validation_required = plan.validation.required
+
+            return {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "Dry-run plan created. "
+                            f"Role: {plan.primary_role.value}. "
+                            f"Model: {model_id}. "
+                            "Validation required: "
+                            f"{validation_required}."
+                        )
+                    )
+                ],
+                "orchestration_status": "planned",
+                "orchestration_attempts": 0,
+                "orchestration_escalation_level": 0,
+                "orchestration_last_failure": None,
+                "orchestration_mode": "dry-run",
+                "orchestration_role": (plan.primary_role.value),
+                "orchestration_model_id": model_id,
+                "orchestration_validation_required": (validation_required),
             }
 
         result = await service.run(
@@ -89,16 +132,22 @@ def build_orchestrator_graph(
             work_dir=work_dir,
         )
 
+        last_attempt = result.attempts[-1] if result.attempts else None
+
         return {
             "messages": [
                 AIMessage(
                     content=_render_result(result),
                 )
             ],
-            "orchestration_status": result.state.status.value,
-            "orchestration_attempts": result.state.attempt,
+            "orchestration_status": (result.state.status.value),
+            "orchestration_attempts": (result.state.attempt),
             "orchestration_escalation_level": (result.state.escalation_level),
             "orchestration_last_failure": (result.state.last_failure),
+            "orchestration_mode": "execute",
+            "orchestration_role": (result.state.plan.primary_role.value),
+            "orchestration_model_id": (last_attempt.model_id if last_attempt else None),
+            "orchestration_validation_required": (result.state.plan.validation.required),
         }
 
     builder = StateGraph(OrchestratorGraphState)
