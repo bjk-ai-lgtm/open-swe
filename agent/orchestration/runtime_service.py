@@ -5,9 +5,11 @@ from typing import Any
 
 from langchain.agents.middleware.types import AgentMiddleware
 
+from agent.runtime import DEFAULT_LLM_MAX_TOKENS
 from agent.validation import ValidationCheck
 
 from .bootstrap import OrchestratorRuntimeContext
+from .model_factory import build_orchestration_model_factory
 from .server_bridge import (
     ModelFactory,
     RoutedOrchestrationService,
@@ -24,6 +26,8 @@ def build_runtime_orchestration_service(
     skills: list[str] | None = None,
     middleware: Sequence[AgentMiddleware[Any, Any, Any]] | None = None,
     use_gateway: bool | None = None,
+    model_effort: str | None = None,
+    max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
     checks: Sequence[ValidationCheck],
     model_factory: ModelFactory | None = None,
     agent_factory: AgentFactory | None = None,
@@ -35,6 +39,13 @@ def build_runtime_orchestration_service(
 
     if not context.work_dir.strip():
         raise ValueError("Runtime context work directory cannot be empty")
+
+    if model_factory is None:
+        model_factory = build_orchestration_model_factory(
+            use_gateway=use_gateway,
+            model_effort=model_effort,
+            max_tokens=max_tokens,
+        )
 
     return build_server_orchestration_service(
         thread_id=context.thread_id,
