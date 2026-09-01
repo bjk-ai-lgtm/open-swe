@@ -18,6 +18,7 @@ from .coordinator import (
     CoordinatorResult,
     run_orchestrated_task,
 )
+from .execution_safety import assert_isolated_execution_environment
 from .specialist_executor import (
     AgentFactory,
     OpenSWESpecialistExecutor,
@@ -25,6 +26,7 @@ from .specialist_executor import (
 
 ModelFactory = Callable[[str], BaseChatModel]
 RunnerFactory = Callable[[str], Awaitable[CommandRunner]]
+ExecutionGuard = Callable[[], None]
 
 
 @dataclass
@@ -35,6 +37,7 @@ class RoutedOrchestrationService:
     executor: OpenSWESpecialistExecutor
     checks: tuple[ValidationCheck, ...]
     runner_factory: RunnerFactory | None = None
+    execution_guard: ExecutionGuard = assert_isolated_execution_environment
 
     async def run(
         self,
@@ -43,6 +46,8 @@ class RoutedOrchestrationService:
         work_dir: str,
     ) -> CoordinatorResult:
         """Run one task through the custom orchestration pipeline."""
+        self.execution_guard()
+
         kwargs: dict[str, Any] = {
             "thread_id": self.thread_id,
             "task": task,
@@ -69,6 +74,7 @@ def build_server_orchestration_service(
     model_factory: ModelFactory | None = None,
     agent_factory: AgentFactory | None = None,
     runner_factory: RunnerFactory | None = None,
+    execution_guard: ExecutionGuard = assert_isolated_execution_environment,
 ) -> RoutedOrchestrationService:
     """Build a coordinator service from the live Open SWE server context."""
     if not thread_id.strip():
@@ -93,4 +99,5 @@ def build_server_orchestration_service(
         executor=executor,
         checks=tuple(checks),
         runner_factory=runner_factory,
+        execution_guard=execution_guard,
     )

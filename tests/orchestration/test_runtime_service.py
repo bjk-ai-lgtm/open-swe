@@ -1,7 +1,11 @@
+import pytest
 from langchain_core.messages import AIMessage
 
 from agent.orchestration.bootstrap import (
     OrchestratorRuntimeContext,
+)
+from agent.orchestration.execution_safety import (
+    UnsafeExecutionEnvironmentError,
 )
 from agent.orchestration.runtime_service import (
     build_runtime_orchestration_service,
@@ -57,6 +61,7 @@ async def test_runtime_service_uses_bootstrapped_context() -> None:
         model_factory=model_factory,
         agent_factory=agent_factory,
         runner_factory=runner_factory,
+        execution_guard=lambda: None,
         checks=(
             ValidationCheck(
                 name="tests",
@@ -96,3 +101,40 @@ def test_runtime_service_preserves_exact_backend() -> None:
     )
 
     assert service.executor._backend is backend
+
+
+async def test_runtime_service_blocks_local_before_model(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("SANDBOX_TYPE", "local")
+
+    backend = object()
+    captured_models = []
+
+    context = OrchestratorRuntimeContext(
+        thread_id="thread-local-blocked",
+        sandbox_backend=backend,
+        work_dir="/workspace/project",
+    )
+
+    def model_factory(model_id):
+        captured_models.append(model_id)
+        return object()
+
+    service = build_runtime_orchestration_service(
+        context,
+        tools=[],
+        checks=(),
+        model_factory=model_factory,
+    )
+
+    with pytest.raises(
+        UnsafeExecutionEnvironmentError,
+        match="SANDBOX_TYPE=local",
+    ):
+        await service.run(
+            task="Implement a REST API backed by the database.",
+            work_dir=context.work_dir,
+        )
+
+    assert captured_models == []

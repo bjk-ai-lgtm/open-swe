@@ -57,6 +57,7 @@ async def test_server_bridge_runs_complete_pipeline() -> None:
         model_factory=model_factory,
         agent_factory=agent_factory,
         runner_factory=runner_factory,
+        execution_guard=lambda: None,
         checks=(
             ValidationCheck(
                 name="tests",
@@ -123,6 +124,7 @@ async def test_server_bridge_preserves_retry_model_routing() -> None:
         model_factory=model_factory,
         agent_factory=agent_factory,
         runner_factory=runner_factory,
+        execution_guard=lambda: None,
         checks=(
             ValidationCheck(
                 name="tests",
@@ -144,3 +146,36 @@ async def test_server_bridge_preserves_retry_model_routing() -> None:
         "openai:gpt-5.6-terra",
         "openai:gpt-5.6-sol",
     ]
+
+
+async def test_server_bridge_runs_execution_guard_before_coordinator() -> None:
+    calls = []
+
+    def execution_guard():
+        calls.append("guard")
+        raise RuntimeError("blocked")
+
+    def model_factory(model_id):
+        calls.append(("model", model_id))
+        return object()
+
+    service = build_server_orchestration_service(
+        thread_id="thread-guard",
+        backend=object(),
+        tools=[],
+        model_factory=model_factory,
+        execution_guard=execution_guard,
+        checks=(),
+    )
+
+    try:
+        await service.run(
+            task="Implement a REST API backed by the database.",
+            work_dir="/workspace/project",
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "blocked"
+    else:
+        raise AssertionError("execution guard must block the run")
+
+    assert calls == ["guard"]
