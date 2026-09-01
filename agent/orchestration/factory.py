@@ -9,6 +9,10 @@ from .bootstrap import (
     bootstrap_orchestrator_runtime,
 )
 from .graph import build_orchestrator_graph
+from .runtime_dependencies import (
+    SpecialistRuntimeDependencies,
+    build_specialist_runtime_dependencies,
+)
 from .runtime_service import (
     build_runtime_orchestration_service,
 )
@@ -26,6 +30,11 @@ BootstrapFactory = Callable[
 ServiceFactory = Callable[
     ...,
     RoutedOrchestrationService,
+]
+
+DependencyFactory = Callable[
+    [RunnableConfig, OrchestratorRuntimeContext],
+    SpecialistRuntimeDependencies,
 ]
 
 _VALIDATION_PROFILE_KEY = "orchestrator_validation_profile"
@@ -87,6 +96,7 @@ async def get_orchestrator(
     *,
     bootstrap: BootstrapFactory = (bootstrap_orchestrator_runtime),
     service_factory: ServiceFactory = (build_runtime_orchestration_service),
+    dependency_factory: DependencyFactory = (build_specialist_runtime_dependencies),
 ):
     """Build the standalone orchestration graph."""
     profile = _validation_profile_from_config(config)
@@ -111,9 +121,18 @@ async def get_orchestrator(
             dry_run=False,
         )
 
+    dependencies = dependency_factory(
+        config,
+        context,
+    )
+
     service = service_factory(
         context,
-        tools=(),
+        tools=dependencies.tools,
+        skills=(list(dependencies.skills) if dependencies.skills else None),
+        middleware=(dependencies.middleware if dependencies.middleware else None),
+        use_gateway=dependencies.use_gateway,
+        model_effort=dependencies.model_effort,
         checks=checks,
     )
 

@@ -94,8 +94,6 @@ async def test_factory_builds_execution_graph_from_runtime_context():
     )
 
     assert captured["context"] is context
-    assert captured["kwargs"]["tools"] == ()
-
     checks = captured["kwargs"]["checks"]
     assert checks
 
@@ -211,3 +209,55 @@ async def test_factory_dry_run_does_not_build_service():
 
     assert service_calls == []
     assert result["orchestration_status"] == ("planned")
+
+
+async def test_factory_passes_runtime_dependencies_to_service():
+    from agent.orchestration.runtime_dependencies import (
+        SpecialistRuntimeDependencies,
+    )
+
+    context = OrchestratorRuntimeContext(
+        thread_id="thread-dependencies",
+        sandbox_backend=object(),
+        work_dir="/workspace/project",
+    )
+
+    captured = {}
+
+    async def bootstrap(config):
+        return context
+
+    def dependency_factory(config, received_context):
+        assert received_context is context
+
+        return SpecialistRuntimeDependencies(
+            tools=("tool-a", "tool-b"),
+            skills=("skill-a",),
+            middleware=("middleware-a",),
+            use_gateway=True,
+            model_effort="high",
+        )
+
+    def service_factory(received_context, **kwargs):
+        captured.update(kwargs)
+        return FakeService()
+
+    await get_orchestrator(
+        {
+            "configurable": {
+                "thread_id": "thread-dependencies",
+            }
+        },
+        bootstrap=bootstrap,
+        dependency_factory=dependency_factory,
+        service_factory=service_factory,
+    )
+
+    assert captured["tools"] == (
+        "tool-a",
+        "tool-b",
+    )
+    assert captured["skills"] == ["skill-a"]
+    assert captured["middleware"] == ("middleware-a",)
+    assert captured["use_gateway"] is True
+    assert captured["model_effort"] == "high"
