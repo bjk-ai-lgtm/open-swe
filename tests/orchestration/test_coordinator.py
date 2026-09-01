@@ -130,3 +130,22 @@ async def test_executor_exception_is_contained_and_retried() -> None:
 
     assert result.attempts[0].execution.success is False
     assert "RuntimeError" in (result.attempts[0].execution.failure_reason or "")
+
+
+async def test_required_validation_rejects_empty_checks() -> None:
+    executor = SuccessfulExecutor()
+
+    try:
+        await run_orchestrated_task(
+            thread_id="thread-empty-validation",
+            task=("Implement a REST API endpoint backed by the database."),
+            work_dir="/workspace/project",
+            executor=executor,
+            checks=(),
+        )
+    except ValueError as exc:
+        assert str(exc) == ("At least one validation check is required for this task")
+    else:
+        raise AssertionError("Expected required validation to reject empty checks")
+
+    assert executor.calls == []

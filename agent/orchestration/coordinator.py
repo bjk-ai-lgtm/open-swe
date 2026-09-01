@@ -105,6 +105,10 @@ async def run_orchestrated_task(
         raise ValueError("Work directory cannot be empty")
 
     plan = build_execution_plan(task)
+
+    if plan.validation.required and not checks:
+        raise ValueError("At least one validation check is required for this task")
+
     state = create_execution_state(plan)
     history: list[AttemptRecord] = []
 
