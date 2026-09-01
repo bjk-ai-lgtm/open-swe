@@ -117,3 +117,30 @@ def test_unknown_repository_is_fail_closed():
 
     assert detect_repository_family(files) is RepositoryFamily.UNKNOWN
     assert validation_checks_for_repository(files) == ()
+
+
+def test_python_uv_repository_uses_optional_dependency_extra():
+    files = {
+        "pyproject.toml": """
+[project]
+name = "demo"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9",
+    "ruff>=0.16",
+]
+
+[tool.pytest.ini_options]
+
+[tool.ruff]
+""",
+        "uv.lock": "",
+    }
+
+    checks = validation_checks_for_repository(files)
+
+    assert [check.command for check in checks] == [
+        ("uv", "run", "--extra", "dev", "pytest", "-q"),
+        ("uv", "run", "--extra", "dev", "ruff", "check", "."),
+    ]

@@ -1,6 +1,7 @@
 """Repository-aware deterministic validation planning."""
 
 import json
+import re
 import tomllib
 from collections.abc import Mapping
 from enum import StrEnum
@@ -33,6 +34,61 @@ def detect_repository_family(files: Mapping[str, str]) -> RepositoryFamily:
     return RepositoryFamily.UNKNOWN
 
 
+def _normalized_requirement_name(requirement: object) -> str | None:
+    if not isinstance(requirement, str):
+        return None
+
+    match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
+    if match is None:
+        return None
+
+    return re.sub(r"[-_.]+", "-", match.group(1)).lower()
+
+
+def _python_uv_extra(config: Mapping[str, object], package_name: str) -> str | None:
+    project = config.get("project")
+    if not isinstance(project, dict):
+        return None
+
+    optional_dependencies = project.get("optional-dependencies")
+    if not isinstance(optional_dependencies, dict):
+        return None
+
+    normalized_package = package_name.lower()
+
+    matching_extras = []
+    for extra, requirements in optional_dependencies.items():
+        if not isinstance(extra, str) or not isinstance(requirements, list):
+            continue
+
+        if any(
+            _normalized_requirement_name(requirement) == normalized_package
+            for requirement in requirements
+        ):
+            matching_extras.append(extra)
+
+    if not matching_extras:
+        return None
+
+    if "dev" in matching_extras:
+        return "dev"
+
+    return sorted(matching_extras)[0]
+
+
+def _python_uv_command(
+    config: Mapping[str, object],
+    package_name: str,
+    *args: str,
+) -> tuple[str, ...]:
+    extra = _python_uv_extra(config, package_name)
+
+    if extra is not None:
+        return ("uv", "run", "--extra", extra, package_name, *args)
+
+    return ("uv", "run", package_name, *args)
+
+
 def _python_checks(files: Mapping[str, str]) -> tuple[ValidationCheck, ...]:
     raw = files.get("pyproject.toml")
     if raw is None:
@@ -50,7 +106,7 @@ def _python_checks(files: Mapping[str, str]) -> tuple[ValidationCheck, ...]:
 
     if "pytest" in tool:
         command = (
-            ("uv", "run", "pytest", "-q")
+            _python_uv_command(config, "pytest", "-q")
             if "uv.lock" in files
             else ("python", "-m", "pytest", "-q")
         )
@@ -63,7 +119,9 @@ def _python_checks(files: Mapping[str, str]) -> tuple[ValidationCheck, ...]:
 
     if "ruff" in tool:
         command = (
-            ("uv", "run", "ruff", "check", ".") if "uv.lock" in files else ("ruff", "check", ".")
+            _python_uv_command(config, "ruff", "check", ".")
+            if "uv.lock" in files
+            else ("ruff", "check", ".")
         )
         checks.append(
             ValidationCheck(
