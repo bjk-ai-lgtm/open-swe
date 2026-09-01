@@ -145,3 +145,118 @@ async def test_executor_blocks_specialist_subdelegation() -> None:
     middleware_names = {type(middleware).__name__ for middleware in captured["middleware"]}
 
     assert "SpecialistNoDelegationMiddleware" in middleware_names
+
+
+async def test_executor_filters_backend_runtime_tools() -> None:
+    captured = {}
+
+    def http_request():
+        pass
+
+    def fetch_url():
+        pass
+
+    def web_search():
+        pass
+
+    def dangerous_admin_tool():
+        pass
+
+    class FakeAgent:
+        async def ainvoke(self, state, config):
+            return {
+                "messages": [
+                    AIMessage(content="done"),
+                ]
+            }
+
+    def model_factory(model_id):
+        return object()
+
+    def agent_factory(**kwargs):
+        captured.update(kwargs)
+        return FakeAgent()
+
+    executor = OpenSWESpecialistExecutor(
+        backend=object(),
+        tools=[
+            http_request,
+            fetch_url,
+            web_search,
+            dangerous_admin_tool,
+        ],
+        model_factory=model_factory,
+        agent_factory=agent_factory,
+    )
+
+    await executor.execute(
+        thread_id="thread-capabilities",
+        work_dir="/workspace/project",
+        task="Implement the API.",
+        role=SpecialistRole.BACKEND,
+        model_id="openai:gpt-5.6-terra",
+        attempt=1,
+        escalation_level=0,
+        previous_failure=None,
+    )
+
+    tool_names = {getattr(tool, "__name__", "") for tool in captured["tools"]}
+
+    assert tool_names == {
+        "http_request",
+        "fetch_url",
+    }
+
+
+async def test_executor_allows_research_web_search() -> None:
+    captured = {}
+
+    def http_request():
+        pass
+
+    def fetch_url():
+        pass
+
+    def web_search():
+        pass
+
+    class FakeAgent:
+        async def ainvoke(self, state, config):
+            return {
+                "messages": [
+                    AIMessage(content="done"),
+                ]
+            }
+
+    def model_factory(model_id):
+        return object()
+
+    def agent_factory(**kwargs):
+        captured.update(kwargs)
+        return FakeAgent()
+
+    executor = OpenSWESpecialistExecutor(
+        backend=object(),
+        tools=[
+            http_request,
+            fetch_url,
+            web_search,
+        ],
+        model_factory=model_factory,
+        agent_factory=agent_factory,
+    )
+
+    await executor.execute(
+        thread_id="thread-research-capabilities",
+        work_dir="/workspace/project",
+        task="Research the relevant API documentation.",
+        role=SpecialistRole.RESEARCH,
+        model_id="google_genai:gemini-3.7-flash",
+        attempt=1,
+        escalation_level=0,
+        previous_failure=None,
+    )
+
+    tool_names = {getattr(tool, "__name__", "") for tool in captured["tools"]}
+
+    assert "web_search" in tool_names

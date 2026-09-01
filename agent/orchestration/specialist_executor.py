@@ -15,6 +15,7 @@ from agent.routing import SpecialistRole
 from agent.specialist_agents import build_v01_specialists
 from agent.utils.model import make_model
 
+from .capability_policy import filter_tools_for_role
 from .coordinator import SpecialistExecutionResult
 
 
@@ -68,11 +69,18 @@ class OpenSWESpecialistExecutor:
         model: BaseChatModel,
     ) -> SubAgent:
         """Build the declarative specialist spec for one routed role."""
+        role_tools = list(
+            filter_tools_for_role(
+                role,
+                self._tools,
+            )
+        )
+
         if role is SpecialistRole.GENERAL:
             spec: SubAgent = {
                 **GENERAL_PURPOSE_SUBAGENT,
                 "model": model,
-                "tools": self._tools,
+                "tools": role_tools,
                 "middleware": self._middleware,
             }
 
@@ -83,7 +91,7 @@ class OpenSWESpecialistExecutor:
 
         specialists = build_v01_specialists(
             model,
-            tools=self._tools,
+            tools=role_tools,
             skills=self._skills,
             middleware=self._middleware,
         )
