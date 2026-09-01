@@ -23,3 +23,11 @@ def test_unknown_validation_profile_is_rejected() -> None:
         match="Unsupported validation profile",
     ):
         validation_checks_for_profile("unknown-profile")
+
+
+def test_auto_profile_requires_runtime_context() -> None:
+    with pytest.raises(
+        ValueError,
+        match="requires repository runtime context",
+    ):
+        validation_checks_for_profile(ValidationProfile.AUTO)

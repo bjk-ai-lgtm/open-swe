@@ -4,6 +4,8 @@ from collections.abc import Awaitable, Callable
 
 from langgraph.graph.state import RunnableConfig
 
+from agent.validation import ValidationCheck
+
 from .bootstrap import (
     OrchestratorRuntimeContext,
     bootstrap_orchestrator_runtime,
@@ -17,10 +19,8 @@ from .runtime_service import (
     build_runtime_orchestration_service,
 )
 from .server_bridge import RoutedOrchestrationService
-from .validation_profiles import (
-    ValidationProfile,
-    validation_checks_for_profile,
-)
+from .validation_profiles import ValidationProfile
+from .validation_resolution import resolve_validation_checks
 
 BootstrapFactory = Callable[
     [RunnableConfig],
@@ -36,6 +36,8 @@ DependencyFactory = Callable[
     [RunnableConfig, OrchestratorRuntimeContext],
     SpecialistRuntimeDependencies,
 ]
+
+ValidationResolver = Callable[..., Awaitable[tuple[ValidationCheck, ...]]]
 
 _VALIDATION_PROFILE_KEY = "orchestrator_validation_profile"
 
@@ -97,13 +99,12 @@ async def get_orchestrator(
     bootstrap: BootstrapFactory = (bootstrap_orchestrator_runtime),
     service_factory: ServiceFactory = (build_runtime_orchestration_service),
     dependency_factory: DependencyFactory = (build_specialist_runtime_dependencies),
+    validation_resolver: ValidationResolver = resolve_validation_checks,
 ):
     """Build the standalone orchestration graph."""
     profile = _validation_profile_from_config(config)
 
     dry_run = _dry_run_from_config(config)
-
-    checks = validation_checks_for_profile(profile)
 
     if dry_run:
         return build_orchestrator_graph(
@@ -120,6 +121,11 @@ async def get_orchestrator(
             work_dir=_SCHEMA_WORK_DIR,
             dry_run=False,
         )
+
+    checks = await validation_resolver(
+        profile,
+        context,
+    )
 
     dependencies = dependency_factory(
         config,

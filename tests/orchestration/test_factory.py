@@ -261,3 +261,78 @@ async def test_factory_passes_runtime_dependencies_to_service():
     assert captured["middleware"] == ("middleware-a",)
     assert captured["use_gateway"] is True
     assert captured["model_effort"] == "high"
+
+
+async def test_factory_auto_validation_uses_runtime_context():
+    from agent.orchestration.validation_profiles import ValidationProfile
+    from agent.validation import ValidationCheck
+
+    context = OrchestratorRuntimeContext(
+        thread_id="thread-auto-validation",
+        sandbox_backend=object(),
+        work_dir="/workspace/project",
+    )
+
+    captured = {}
+
+    async def bootstrap(config):
+        return context
+
+    async def validation_resolver(profile, received_context):
+        captured["profile"] = profile
+        captured["validation_context"] = received_context
+        return (
+            ValidationCheck(
+                name="auto-check",
+                command=("echo", "ok"),
+            ),
+        )
+
+    def service_factory(received_context, **kwargs):
+        captured["service_context"] = received_context
+        captured["checks"] = kwargs["checks"]
+        return FakeService()
+
+    await get_orchestrator(
+        {
+            "configurable": {
+                "thread_id": "thread-auto-validation",
+                "orchestrator_validation_profile": "auto",
+            }
+        },
+        bootstrap=bootstrap,
+        service_factory=service_factory,
+        validation_resolver=validation_resolver,
+    )
+
+    assert captured["profile"] is ValidationProfile.AUTO
+    assert captured["validation_context"] is context
+    assert captured["service_context"] is context
+    assert len(captured["checks"]) == 1
+    assert captured["checks"][0].name == "auto-check"
+
+
+async def test_factory_dry_run_auto_does_not_resolve_validation():
+    async def bootstrap(config):
+        raise AssertionError("dry-run auto validation must not bootstrap a sandbox")
+
+    async def validation_resolver(*args, **kwargs):
+        raise AssertionError("dry-run auto validation must not inspect repository")
+
+    graph = await get_orchestrator(
+        {
+            "configurable": {
+                "thread_id": "thread-dry-auto",
+                "orchestrator_dry_run": True,
+                "orchestrator_validation_profile": "auto",
+            }
+        },
+        bootstrap=bootstrap,
+        validation_resolver=validation_resolver,
+    )
+
+    result = await graph.ainvoke(
+        {"messages": [HumanMessage(content="Implement a REST API backed by the database.")]}
+    )
+
+    assert result["orchestration_status"] == "planned"
