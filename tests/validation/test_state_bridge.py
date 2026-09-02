@@ -23,7 +23,7 @@ def validating_backend_state():
     return mark_execution_complete(state)
 
 
-def test_passing_report_completes_task() -> None:
+def test_passing_report_advances_to_publication() -> None:
     state = validating_backend_state()
 
     check = ValidationCheck(
@@ -42,8 +42,8 @@ def test_passing_report_completes_task() -> None:
 
     state = apply_validation_report(state, report)
 
-    assert state.status is TaskStatus.SUCCEEDED
-    assert state.terminal is True
+    assert state.status is TaskStatus.PUBLISHING
+    assert state.terminal is False
 
 
 def test_failing_report_requests_retry() -> None:

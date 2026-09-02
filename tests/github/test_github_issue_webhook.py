@@ -37,9 +37,13 @@ def _explicit_slack_thread_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
     async def channel_context(*args: object, **kwargs: object) -> dict[str, bool]:
         return {"is_ext_shared": False, "is_pending_ext_shared": False}
 
+    async def claim(*args: object, **kwargs: object) -> bool:
+        return True
+
     monkeypatch.setattr(webhook_common, "resolve_slack_thread_id", resolve)
     monkeypatch.setattr(webhook_common, "lookup_slack_thread_id", lookup)
     monkeypatch.setattr(webhook_common, "_get_slack_channel_context", channel_context)
+    monkeypatch.setattr(webhook_common, "claim_slack_event", claim)
 
 
 def _sign_body(body: bytes, secret: str = _TEST_WEBHOOK_SECRET) -> str:
