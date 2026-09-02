@@ -179,3 +179,103 @@ async def test_server_bridge_runs_execution_guard_before_coordinator() -> None:
         raise AssertionError("execution guard must block the run")
 
     assert calls == ["guard"]
+
+
+async def test_server_bridge_prepares_runtime_before_coordinator() -> None:
+    from agent.orchestration.server_bridge import PreparedRun
+
+    captured = {}
+
+    class Agent:
+        async def ainvoke(self, state, config):
+            captured["agent_state"] = state
+            return {
+                "messages": [
+                    AIMessage(content="done"),
+                ]
+            }
+
+    def agent_factory(**kwargs):
+        return Agent()
+
+    class Runner:
+        async def run(self, check, *, work_dir):
+            captured["validation_work_dir"] = work_dir
+            return CommandResult(
+                exit_code=0,
+                stdout="passed",
+            )
+
+    async def runner_factory(thread_id):
+        return Runner()
+
+    async def run_preparer(work_dir):
+        captured["original_work_dir"] = work_dir
+        return PreparedRun(
+            work_dir="/workspace/open-swe",
+            checks=(
+                ValidationCheck(
+                    name="prepared-tests",
+                    command=("pytest", "-q"),
+                ),
+            ),
+        )
+
+    service = build_server_orchestration_service(
+        thread_id="thread-prepared",
+        backend=object(),
+        tools=[],
+        model_factory=lambda model_id: object(),
+        agent_factory=agent_factory,
+        runner_factory=runner_factory,
+        run_preparer=run_preparer,
+        execution_guard=lambda: None,
+        checks=(),
+    )
+
+    result = await service.run(
+        task="Implement a REST API backed by the database.",
+        work_dir="/workspace",
+    )
+
+    assert result.state.status.value == "succeeded"
+    assert captured["original_work_dir"] == "/workspace"
+    assert captured["validation_work_dir"] == (
+        "/workspace/open-swe"
+    )
+
+
+async def test_server_bridge_execution_guard_runs_before_preparation() -> None:
+    calls = []
+
+    def execution_guard():
+        calls.append("guard")
+        raise RuntimeError("blocked")
+
+    async def run_preparer(work_dir):
+        calls.append(("prepare", work_dir))
+        raise AssertionError(
+            "preparer must not run after safety guard failure"
+        )
+
+    service = build_server_orchestration_service(
+        thread_id="thread-preparation-guard",
+        backend=object(),
+        tools=[],
+        model_factory=lambda model_id: object(),
+        execution_guard=execution_guard,
+        run_preparer=run_preparer,
+        checks=(),
+    )
+
+    try:
+        await service.run(
+            task="Implement a REST API backed by the database.",
+            work_dir="/workspace",
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "blocked"
+    else:
+        raise AssertionError("execution guard must block the run")
+
+    assert calls == ["guard"]

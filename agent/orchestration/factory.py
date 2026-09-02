@@ -11,6 +11,7 @@ from .bootstrap import (
     bootstrap_orchestrator_runtime,
 )
 from .graph import build_orchestrator_graph
+from .run_preparation import prepare_runtime_run
 from .runtime_dependencies import (
     SpecialistRuntimeDependencies,
     build_specialist_runtime_dependencies,
@@ -122,10 +123,14 @@ async def get_orchestrator(
             dry_run=False,
         )
 
-    checks = await validation_resolver(
-        profile,
-        context,
-    )
+    async def run_preparer(work_dir: str):
+        return await prepare_runtime_run(
+            config,
+            context,
+            profile,
+            requested_work_dir=work_dir,
+            validation_resolver=validation_resolver,
+        )
 
     dependencies = dependency_factory(
         config,
@@ -139,7 +144,8 @@ async def get_orchestrator(
         middleware=(dependencies.middleware if dependencies.middleware else None),
         use_gateway=dependencies.use_gateway,
         model_effort=dependencies.model_effort,
-        checks=checks,
+        checks=(),
+        run_preparer=run_preparer,
     )
 
     return build_orchestrator_graph(

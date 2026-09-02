@@ -94,8 +94,8 @@ async def test_factory_builds_execution_graph_from_runtime_context():
     )
 
     assert captured["context"] is context
-    checks = captured["kwargs"]["checks"]
-    assert checks
+    assert captured["kwargs"]["checks"] == ()
+    assert callable(captured["kwargs"]["run_preparer"])
 
     assert service.calls == [
         {
@@ -263,14 +263,18 @@ async def test_factory_passes_runtime_dependencies_to_service():
     assert captured["model_effort"] == "high"
 
 
-async def test_factory_auto_validation_uses_runtime_context():
+async def test_factory_auto_validation_is_deferred_until_run_preparation(
+    monkeypatch,
+):
+    import agent.orchestration.factory as factory_module
+    from agent.orchestration.server_bridge import PreparedRun
     from agent.orchestration.validation_profiles import ValidationProfile
     from agent.validation import ValidationCheck
 
     context = OrchestratorRuntimeContext(
         thread_id="thread-auto-validation",
         sandbox_backend=object(),
-        work_dir="/workspace/project",
+        work_dir="/workspace",
     )
 
     captured = {}
@@ -281,6 +285,7 @@ async def test_factory_auto_validation_uses_runtime_context():
     async def validation_resolver(profile, received_context):
         captured["profile"] = profile
         captured["validation_context"] = received_context
+
         return (
             ValidationCheck(
                 name="auto-check",
@@ -288,9 +293,35 @@ async def test_factory_auto_validation_uses_runtime_context():
             ),
         )
 
+    async def fake_prepare_runtime_run(
+        config,
+        received_context,
+        profile,
+        *,
+        requested_work_dir,
+        validation_resolver,
+    ):
+        captured["prepare_work_dir"] = requested_work_dir
+
+        checks = await validation_resolver(
+            profile,
+            received_context,
+        )
+
+        return PreparedRun(
+            work_dir="/workspace/open-swe",
+            checks=checks,
+        )
+
+    monkeypatch.setattr(
+        factory_module,
+        "prepare_runtime_run",
+        fake_prepare_runtime_run,
+    )
+
     def service_factory(received_context, **kwargs):
         captured["service_context"] = received_context
-        captured["checks"] = kwargs["checks"]
+        captured["service_kwargs"] = kwargs
         return FakeService()
 
     await get_orchestrator(
@@ -305,11 +336,17 @@ async def test_factory_auto_validation_uses_runtime_context():
         validation_resolver=validation_resolver,
     )
 
+    assert "profile" not in captured
+
+    preparer = captured["service_kwargs"]["run_preparer"]
+
+    prepared = await preparer("/workspace")
+
     assert captured["profile"] is ValidationProfile.AUTO
     assert captured["validation_context"] is context
-    assert captured["service_context"] is context
-    assert len(captured["checks"]) == 1
-    assert captured["checks"][0].name == "auto-check"
+    assert captured["prepare_work_dir"] == "/workspace"
+    assert prepared.work_dir == "/workspace/open-swe"
+    assert prepared.checks[0].name == "auto-check"
 
 
 async def test_factory_dry_run_auto_does_not_resolve_validation():

@@ -138,3 +138,74 @@ async def test_runtime_service_blocks_local_before_model(
         )
 
     assert captured_models == []
+
+
+async def test_runtime_service_forwards_run_preparer() -> None:
+    from agent.orchestration.server_bridge import PreparedRun
+
+    backend = object()
+    captured = {}
+
+    context = OrchestratorRuntimeContext(
+        thread_id="thread-prepared-runtime",
+        sandbox_backend=backend,
+        work_dir="/workspace",
+    )
+
+    class Agent:
+        async def ainvoke(self, state, config):
+            return {
+                "messages": [
+                    AIMessage(content="done"),
+                ]
+            }
+
+    def agent_factory(**kwargs):
+        return Agent()
+
+    class Runner:
+        async def run(self, check, *, work_dir):
+            captured["validation_work_dir"] = work_dir
+
+            return CommandResult(
+                exit_code=0,
+                stdout="passed",
+            )
+
+    async def runner_factory(thread_id):
+        return Runner()
+
+    async def run_preparer(work_dir):
+        captured["requested_work_dir"] = work_dir
+
+        return PreparedRun(
+            work_dir="/workspace/open-swe",
+            checks=(
+                ValidationCheck(
+                    name="tests",
+                    command=("pytest", "-q"),
+                ),
+            ),
+        )
+
+    service = build_runtime_orchestration_service(
+        context,
+        tools=[],
+        model_factory=lambda model_id: object(),
+        agent_factory=agent_factory,
+        runner_factory=runner_factory,
+        run_preparer=run_preparer,
+        execution_guard=lambda: None,
+        checks=(),
+    )
+
+    result = await service.run(
+        task="Implement a REST API backed by the database.",
+        work_dir=context.work_dir,
+    )
+
+    assert result.state.status.value == "succeeded"
+    assert captured["requested_work_dir"] == "/workspace"
+    assert captured["validation_work_dir"] == (
+        "/workspace/open-swe"
+    )

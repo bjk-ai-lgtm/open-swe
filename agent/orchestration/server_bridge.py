@@ -29,6 +29,17 @@ RunnerFactory = Callable[[str], Awaitable[CommandRunner]]
 ExecutionGuard = Callable[[], None]
 
 
+@dataclass(frozen=True)
+class PreparedRun:
+    """Runtime-owned inputs prepared immediately before coordination."""
+
+    work_dir: str
+    checks: tuple[ValidationCheck, ...]
+
+
+RunPreparer = Callable[[str], Awaitable[PreparedRun]]
+
+
 @dataclass
 class RoutedOrchestrationService:
     """Thread-bound runtime service for deterministic orchestration."""
@@ -37,6 +48,7 @@ class RoutedOrchestrationService:
     executor: OpenSWESpecialistExecutor
     checks: tuple[ValidationCheck, ...]
     runner_factory: RunnerFactory | None = None
+    run_preparer: RunPreparer | None = None
     execution_guard: ExecutionGuard = assert_isolated_execution_environment
 
     async def run(
@@ -48,12 +60,26 @@ class RoutedOrchestrationService:
         """Run one task through the custom orchestration pipeline."""
         self.execution_guard()
 
+        effective_work_dir = work_dir
+        effective_checks = self.checks
+
+        if self.run_preparer is not None:
+            prepared = await self.run_preparer(work_dir)
+
+            if not prepared.work_dir.strip():
+                raise ValueError(
+                    "Prepared runtime work directory cannot be empty"
+                )
+
+            effective_work_dir = prepared.work_dir
+            effective_checks = prepared.checks
+
         kwargs: dict[str, Any] = {
             "thread_id": self.thread_id,
             "task": task,
-            "work_dir": work_dir,
+            "work_dir": effective_work_dir,
             "executor": self.executor,
-            "checks": self.checks,
+            "checks": effective_checks,
         }
 
         if self.runner_factory is not None:
@@ -74,6 +100,7 @@ def build_server_orchestration_service(
     model_factory: ModelFactory | None = None,
     agent_factory: AgentFactory | None = None,
     runner_factory: RunnerFactory | None = None,
+    run_preparer: RunPreparer | None = None,
     execution_guard: ExecutionGuard = assert_isolated_execution_environment,
 ) -> RoutedOrchestrationService:
     """Build a coordinator service from the live Open SWE server context."""
@@ -99,5 +126,6 @@ def build_server_orchestration_service(
         executor=executor,
         checks=tuple(checks),
         runner_factory=runner_factory,
+        run_preparer=run_preparer,
         execution_guard=execution_guard,
     )

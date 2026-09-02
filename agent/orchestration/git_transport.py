@@ -1,48 +1,14 @@
 """Provider-aware Git transport configuration for orchestration sandboxes."""
 
-import asyncio
 import os
-from typing import Any
 
 from deepagents.backends.protocol import SandboxBackendProtocol
 
-from agent.utils.sandbox_state import unwrap_sandbox_backend
+from .sandbox_command import execute_control_plane_command
 
 _DAYTONA_DEFAULT_CA = "/etc/daytona/netleash/ca.crt"
 _DAYTONA_GITHUB_HEADER_KEY = "http.https://github.com/.extraHeader"
 _DAYTONA_COMMAND_TIMEOUT_SECONDS = 60
-
-
-async def _execute_daytona_native(
-    sandbox_backend: SandboxBackendProtocol,
-    command: str,
-) -> tuple[int, str]:
-    """Execute a command through Daytona's native SDK path.
-
-    ``langchain-daytona`` can surface a session-cleanup exception after a command
-    has already completed. Transport bootstrap must have unambiguous execution
-    semantics, so Daytona bypasses that wrapper for this control-plane step.
-    """
-    sandbox_backend = unwrap_sandbox_backend(sandbox_backend)
-    native_sandbox = getattr(sandbox_backend, "_sandbox", None)
-    process = getattr(native_sandbox, "process", None)
-    exec_fn = getattr(process, "exec", None)
-
-    if not callable(exec_fn):
-        raise RuntimeError("Daytona backend does not expose native process.exec")
-
-    result = await asyncio.to_thread(
-        exec_fn,
-        command,
-        timeout=_DAYTONA_COMMAND_TIMEOUT_SECONDS,
-    )
-
-    exit_code = getattr(result, "exit_code", None)
-    if not isinstance(exit_code, int):
-        raise RuntimeError("Daytona native process.exec returned an invalid exit code")
-
-    output: Any = getattr(result, "result", "")
-    return exit_code, output if isinstance(output, str) else str(output or "")
 
 
 async def configure_git_transport(
@@ -86,10 +52,15 @@ else
 fi
 """.strip()
 
-    exit_code, output = await _execute_daytona_native(sandbox_backend, command)
+    result = await execute_control_plane_command(
+        sandbox_backend,
+        command,
+        timeout=_DAYTONA_COMMAND_TIMEOUT_SECONDS,
+        sandbox_type=provider,
+    )
 
-    if exit_code != 0:
-        detail = output.strip()
+    if result.exit_code != 0:
+        detail = result.output.strip()
         suffix = f": {detail}" if detail else ""
         raise RuntimeError(f"Failed to configure Daytona Git transport{suffix}")
 

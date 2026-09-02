@@ -16,6 +16,7 @@ from .server_bridge import (
     ModelFactory,
     RoutedOrchestrationService,
     RunnerFactory,
+    RunPreparer,
     build_server_orchestration_service,
 )
 from .specialist_executor import AgentFactory
@@ -34,6 +35,7 @@ def build_runtime_orchestration_service(
     model_factory: ModelFactory | None = None,
     agent_factory: AgentFactory | None = None,
     runner_factory: RunnerFactory | None = None,
+    run_preparer: RunPreparer | None = None,
     execution_guard: ExecutionGuard = assert_isolated_execution_environment,
 ) -> RoutedOrchestrationService:
     """Build an orchestration service bound to one Open SWE thread."""
@@ -61,5 +63,6 @@ def build_runtime_orchestration_service(
         model_factory=model_factory,
         agent_factory=agent_factory,
         runner_factory=runner_factory,
+        run_preparer=run_preparer,
         execution_guard=execution_guard,
     )
