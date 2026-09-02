@@ -12,6 +12,8 @@ from agent.runtime import (
 )
 from agent.utils.sandbox_paths import aresolve_sandbox_work_dir
 
+from .git_transport import configure_git_transport
+
 EnsureSandbox = Callable[
     [str],
     Awaitable[SandboxBackendProtocol],
@@ -25,6 +27,11 @@ ResolveWorkDir = Callable[
 ExecutionPredicate = Callable[
     [RunnableConfig],
     bool,
+]
+
+ConfigureGitTransport = Callable[
+    [SandboxBackendProtocol],
+    Awaitable[bool],
 ]
 
 
@@ -42,6 +49,7 @@ async def bootstrap_orchestrator_runtime(
     *,
     ensure_sandbox: EnsureSandbox = ensure_sandbox_for_thread,
     resolve_work_dir: ResolveWorkDir = aresolve_sandbox_work_dir,
+    configure_transport: ConfigureGitTransport = configure_git_transport,
     execution_predicate: ExecutionPredicate = (graph_loaded_for_execution),
 ) -> OrchestratorRuntimeContext | None:
     """Resolve the real thread sandbox and writable workspace.
@@ -62,6 +70,8 @@ async def bootstrap_orchestrator_runtime(
     thread_id = thread_id.strip()
 
     backend = await ensure_sandbox(thread_id)
+
+    await configure_transport(backend)
 
     work_dir = await resolve_work_dir(backend)
 
