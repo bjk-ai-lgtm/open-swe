@@ -612,7 +612,10 @@ async def ensure_sandbox_for_thread(
         else None
     )
     async with aphase(thread_id, "sandbox.thread_metadata"):
-        sandbox_id = await get_sandbox_id_from_metadata(thread_id)
+        sandbox_id = await get_sandbox_id_from_metadata(
+            thread_id,
+            strict=True,
+        )
         sandbox_metadata = await get_sandbox_metadata(thread_id) if sandbox_id is not None else {}
     metadata_proxy_config = sandbox_metadata.get(_SANDBOX_PROXY_CONFIG_METADATA_KEY)
     base_proxy_config = (

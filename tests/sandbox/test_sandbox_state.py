@@ -16,6 +16,7 @@ from deepagents.backends.sandbox import BaseSandbox
 from agent.utils.sandbox_state import (
     SANDBOX_BACKENDS,
     SandboxBackendProxy,
+    SandboxMetadataLookupError,
     get_or_create_sandbox_backend_proxy,
     get_sandbox_backend,
     get_sandbox_id_from_metadata,
@@ -350,3 +351,38 @@ async def test_sandbox_id_metadata_falls_back_to_live_thread(
 
     assert await get_sandbox_id_from_metadata("thread-1") == "sandbox-live"
     threads.get.assert_awaited_once_with("thread-1")
+
+
+@pytest.mark.asyncio
+async def test_strict_metadata_lookup_distinguishes_backend_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    threads = SimpleNamespace(
+        get=AsyncMock(
+            side_effect=RuntimeError(
+                "thread store unavailable"
+            )
+        )
+    )
+
+    monkeypatch.setattr(
+        "agent.utils.sandbox_state.get_config",
+        lambda: {"metadata": {}},
+    )
+    monkeypatch.setattr(
+        "agent.utils.sandbox_state.get_client",
+        lambda: SimpleNamespace(threads=threads),
+    )
+
+    with pytest.raises(
+        SandboxMetadataLookupError,
+        match="thread store unavailable",
+    ):
+        await get_sandbox_id_from_metadata(
+            "thread-strict",
+            strict=True,
+        )
+
+    threads.get.assert_awaited_once_with(
+        "thread-strict"
+    )

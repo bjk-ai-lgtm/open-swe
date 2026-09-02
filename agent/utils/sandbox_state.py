@@ -29,6 +29,22 @@ from .sandbox import create_sandbox
 logger = logging.getLogger(__name__)
 
 
+class SandboxMetadataLookupError(RuntimeError):
+    """Thread sandbox metadata could not be read reliably."""
+
+    def __init__(
+        self,
+        thread_id: str,
+        cause: str,
+    ) -> None:
+        self.thread_id = thread_id
+        self.cause = cause
+        super().__init__(
+            f"Failed to read sandbox metadata for thread "
+            f"{thread_id}: {cause}"
+        )
+
+
 class SandboxUnreachableError(RuntimeError):
     """The thread's sandbox did not answer this run.
 
@@ -362,8 +378,16 @@ def get_or_create_sandbox_backend_proxy(
     return sandbox_backend
 
 
-async def get_sandbox_metadata(thread_id: str) -> dict[str, Any]:
-    """Fetch sandbox metadata from the run config or live thread."""
+async def get_sandbox_metadata(
+    thread_id: str,
+    *,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Fetch sandbox metadata from the run config or live thread.
+
+    When ``strict`` is true, failure to query the live thread is distinct
+    from a successful lookup whose metadata simply contains no sandbox id.
+    """
     try:
         config = get_config()
         metadata = config.get("metadata", {})
@@ -378,17 +402,32 @@ async def get_sandbox_metadata(thread_id: str) -> dict[str, Any]:
     try:
         client = get_client()
         thread = await client.threads.get(thread_id)
-    except Exception:
-        logger.exception("Failed to fetch live thread metadata for sandbox")
+    except Exception as exc:
+        if strict:
+            raise SandboxMetadataLookupError(
+                thread_id,
+                str(exc),
+            ) from exc
+
+        logger.exception(
+            "Failed to fetch live thread metadata for sandbox"
+        )
         return {}
 
     metadata = thread.get("metadata", {}) if isinstance(thread, dict) else {}
     return metadata if isinstance(metadata, dict) else {}
 
 
-async def get_sandbox_id_from_metadata(thread_id: str) -> str | None:
+async def get_sandbox_id_from_metadata(
+    thread_id: str,
+    *,
+    strict: bool = False,
+) -> str | None:
     """Fetch sandbox_id from thread metadata."""
-    metadata = await get_sandbox_metadata(thread_id)
+    metadata = await get_sandbox_metadata(
+        thread_id,
+        strict=strict,
+    )
     sandbox_id = metadata.get("sandbox_id")
     return sandbox_id if isinstance(sandbox_id, str) else None
 

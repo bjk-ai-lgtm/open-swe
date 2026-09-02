@@ -9,7 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agent.server import SANDBOX_BACKENDS, ensure_sandbox_for_thread
-from agent.utils.sandbox_state import get_or_create_sandbox_backend_proxy
+from agent.utils.sandbox_state import (
+    SandboxMetadataLookupError,
+    get_or_create_sandbox_backend_proxy,
+)
 
 
 @pytest.mark.asyncio
@@ -133,4 +136,42 @@ async def test_ensure_sandbox_resolves_unresolved_backend_proxy() -> None:
     connect_sandbox.assert_awaited_once_with("sandbox-existing")
     assert refresh_proxy.await_count == 1
     update_thread.assert_not_awaited()
+    SANDBOX_BACKENDS.clear()
+
+
+@pytest.mark.asyncio
+async def test_metadata_lookup_failure_never_creates_sandbox() -> None:
+    thread_id = "thread-metadata-outage"
+    SANDBOX_BACKENDS.clear()
+
+    async def metadata_lookup(
+        requested_thread_id,
+        *,
+        strict=False,
+    ):
+        assert requested_thread_id == thread_id
+        assert strict is True
+
+        raise SandboxMetadataLookupError(
+            thread_id,
+            "thread store unavailable",
+        )
+
+    with (
+        patch(
+            "agent.server.get_sandbox_id_from_metadata",
+            side_effect=metadata_lookup,
+        ),
+        patch(
+            "agent.server._create_sandbox_with_proxy",
+            new_callable=AsyncMock,
+        ) as create_sandbox,
+        pytest.raises(
+            SandboxMetadataLookupError,
+            match="thread store unavailable",
+        ),
+    ):
+        await ensure_sandbox_for_thread(thread_id)
+
+    create_sandbox.assert_not_awaited()
     SANDBOX_BACKENDS.clear()
