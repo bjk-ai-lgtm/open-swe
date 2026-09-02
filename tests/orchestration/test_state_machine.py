@@ -6,6 +6,7 @@ from agent.orchestration import (
     begin_escalated_attempt,
     create_execution_state,
     mark_execution_complete,
+    mark_publication_complete,
     record_validation_result,
 )
 from agent.routing import SpecialistRole, build_execution_plan
@@ -31,6 +32,11 @@ def test_backend_happy_path_requires_qa_before_success() -> None:
     assert state.current_role is SpecialistRole.QA
 
     state = record_validation_result(state, passed=True)
+
+    assert state.status is TaskStatus.PUBLISHING
+    assert state.terminal is False
+
+    state = mark_publication_complete(state)
 
     assert state.status is TaskStatus.SUCCEEDED
     assert state.terminal is True
@@ -146,8 +152,12 @@ def test_research_task_succeeds_without_qa_gate() -> None:
     state = begin_attempt(state)
     state = mark_execution_complete(state)
 
-    assert state.status is TaskStatus.SUCCEEDED
+    assert state.status is TaskStatus.PUBLISHING
     assert state.validation_failures == 0
+
+    state = mark_publication_complete(state)
+
+    assert state.status is TaskStatus.SUCCEEDED
 
 
 def test_terminal_task_cannot_be_started_again() -> None:
@@ -155,6 +165,7 @@ def test_terminal_task_cannot_be_started_again() -> None:
     state = create_execution_state(plan)
     state = begin_attempt(state)
     state = mark_execution_complete(state)
+    state = mark_publication_complete(state)
 
     with pytest.raises(ValueError):
         begin_attempt(state)

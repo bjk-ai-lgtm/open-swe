@@ -16,6 +16,7 @@ class TaskStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     VALIDATING = "validating"
+    PUBLISHING = "publishing"
     RETRY_REQUIRED = "retry-required"
     ESCALATION_REQUIRED = "escalation-required"
     SUCCEEDED = "succeeded"
@@ -171,7 +172,7 @@ def mark_execution_complete(state: ExecutionState) -> ExecutionState:
 
     return replace(
         state,
-        status=TaskStatus.SUCCEEDED,
+        status=TaskStatus.PUBLISHING,
     )
 
 
@@ -188,7 +189,7 @@ def record_validation_result(
     if passed:
         return replace(
             state,
-            status=TaskStatus.SUCCEEDED,
+            status=TaskStatus.PUBLISHING,
             last_failure=None,
         )
 
@@ -240,6 +241,34 @@ def record_validation_result(
         last_failure=reason,
     )
 
+
+
+def mark_publication_complete(state: ExecutionState) -> ExecutionState:
+    """Mark external publication complete and finish the task."""
+    if state.status is not TaskStatus.PUBLISHING:
+        raise ValueError(f"Cannot complete publication from status {state.status}")
+
+    return replace(
+        state,
+        status=TaskStatus.SUCCEEDED,
+        last_failure=None,
+    )
+
+
+def record_publication_failure(
+    state: ExecutionState,
+    *,
+    failure_reason: str,
+) -> ExecutionState:
+    """Contain a publication failure without crashing orchestration."""
+    if state.status is not TaskStatus.PUBLISHING:
+        raise ValueError(f"Cannot fail publication from status {state.status}")
+
+    return replace(
+        state,
+        status=TaskStatus.QUARANTINED,
+        last_failure=failure_reason,
+    )
 
 def quarantine_task(
     state: ExecutionState,

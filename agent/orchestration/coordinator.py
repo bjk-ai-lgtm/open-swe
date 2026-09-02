@@ -25,8 +25,10 @@ from .state import (
     begin_escalated_attempt,
     create_execution_state,
     mark_execution_complete,
+    mark_publication_complete,
     quarantine_task,
     record_execution_failure,
+    record_publication_failure,
 )
 
 
@@ -37,6 +39,18 @@ class SpecialistExecutionResult:
     success: bool
     summary: str = ""
     failure_reason: str | None = None
+
+
+TaskPublisher = Callable[..., Awaitable[None]]
+
+
+async def _noop_publisher(
+    *,
+    thread_id: str,
+    task: str,
+    work_dir: str,
+) -> None:
+    del thread_id, task, work_dir
 
 
 class SpecialistExecutor(Protocol):
@@ -93,6 +107,7 @@ async def run_orchestrated_task(
     executor: SpecialistExecutor,
     checks: Sequence[ValidationCheck],
     runner_factory: RunnerFactory = _default_runner_factory,
+    publisher: TaskPublisher = _noop_publisher,
 ) -> CoordinatorResult:
     """Run one task through routing, execution, validation, and escalation."""
     if not thread_id.strip():
@@ -183,6 +198,23 @@ async def run_orchestrated_task(
                     state,
                     reason=(f"Validation infrastructure failure: {type(exc).__name__}: {exc}"),
                 )
+
+        if state.status is TaskStatus.PUBLISHING:
+            try:
+                await publisher(
+                    thread_id=thread_id,
+                    task=task,
+                    work_dir=work_dir,
+                )
+            except Exception as exc:
+                state = record_publication_failure(
+                    state,
+                    failure_reason=(
+                        f"Publication failed: {type(exc).__name__}: {exc}"
+                    ),
+                )
+            else:
+                state = mark_publication_complete(state)
 
         history.append(
             AttemptRecord(

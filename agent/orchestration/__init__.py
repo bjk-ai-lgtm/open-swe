@@ -7,8 +7,10 @@ from .state import (
     begin_escalated_attempt,
     create_execution_state,
     mark_execution_complete,
+    mark_publication_complete,
     quarantine_task,
     record_execution_failure,
+    record_publication_failure,
     record_validation_result,
 )
 
@@ -19,7 +21,9 @@ __all__ = [
     "begin_escalated_attempt",
     "create_execution_state",
     "mark_execution_complete",
+    "mark_publication_complete",
     "quarantine_task",
     "record_execution_failure",
+    "record_publication_failure",
     "record_validation_result",
 ]

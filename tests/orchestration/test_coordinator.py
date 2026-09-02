@@ -149,3 +149,119 @@ async def test_required_validation_rejects_empty_checks() -> None:
         raise AssertionError("Expected required validation to reject empty checks")
 
     assert executor.calls == []
+
+async def test_successful_task_is_published_only_after_validation() -> None:
+    events = []
+
+    class Executor:
+        async def execute(self, **kwargs):
+            del kwargs
+            events.append("execute")
+            return SpecialistExecutionResult(
+                success=True,
+                summary="done",
+            )
+
+    class RecordingRunner:
+        async def run(self, check, *, work_dir):
+            del check, work_dir
+            events.append("validate")
+            return CommandResult(
+                exit_code=0,
+                stdout="ok",
+            )
+
+    async def publisher(**kwargs):
+        del kwargs
+        events.append("publish")
+
+    result = await run_orchestrated_task(
+        thread_id="thread-publish",
+        task="Implement a REST API endpoint backed by the database.",
+        work_dir="/workspace/project",
+        executor=Executor(),
+        checks=CHECKS,
+        runner_factory=runner_factory(RecordingRunner()),
+        publisher=publisher,
+    )
+
+    assert result.state.status is TaskStatus.SUCCEEDED
+    assert events == [
+        "execute",
+        "validate",
+        "publish",
+    ]
+
+
+async def test_failed_task_is_never_published() -> None:
+    published = []
+
+    class Executor:
+        async def execute(self, **kwargs):
+            del kwargs
+            return SpecialistExecutionResult(
+                success=False,
+                failure_reason="implementation failed",
+            )
+
+    async def publisher(**kwargs):
+        published.append(kwargs)
+
+    result = await run_orchestrated_task(
+        thread_id="thread-no-publish",
+        task="Implement a REST API endpoint backed by the database.",
+        work_dir="/workspace/project",
+        executor=Executor(),
+        checks=CHECKS,
+        runner_factory=runner_factory(SequencedRunner([])),
+        publisher=publisher,
+    )
+
+    assert result.state.status is TaskStatus.QUARANTINED
+    assert published == []
+
+async def test_publication_failure_is_quarantined() -> None:
+    events = []
+
+    class Executor:
+        async def execute(self, **kwargs):
+            del kwargs
+            events.append("execute")
+            return SpecialistExecutionResult(
+                success=True,
+                summary="done",
+            )
+
+    class RecordingRunner:
+        async def run(self, check, *, work_dir):
+            del check, work_dir
+            events.append("validate")
+            return CommandResult(
+                exit_code=0,
+                stdout="ok",
+            )
+
+    async def publisher(**kwargs):
+        del kwargs
+        events.append("publish")
+        raise RuntimeError("remote unavailable")
+
+    result = await run_orchestrated_task(
+        thread_id="thread-publish-fail",
+        task="Implement a REST API endpoint backed by the database.",
+        work_dir="/workspace/project",
+        executor=Executor(),
+        checks=CHECKS,
+        runner_factory=runner_factory(RecordingRunner()),
+        publisher=publisher,
+    )
+
+    assert result.state.status is TaskStatus.QUARANTINED
+    assert result.state.last_failure == (
+        "Publication failed: RuntimeError: remote unavailable"
+    )
+    assert events == [
+        "execute",
+        "validate",
+        "publish",
+    ]
