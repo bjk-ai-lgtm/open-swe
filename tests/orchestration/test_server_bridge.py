@@ -279,3 +279,73 @@ async def test_server_bridge_execution_guard_runs_before_preparation() -> None:
         raise AssertionError("execution guard must block the run")
 
     assert calls == ["guard"]
+
+
+async def test_server_bridge_publishes_prepared_workspace() -> None:
+    from agent.orchestration.server_bridge import PreparedRun
+
+    captured = {}
+
+    class Agent:
+        async def ainvoke(self, state, config):
+            return {
+                "messages": [
+                    AIMessage(content="done"),
+                ]
+            }
+
+    def agent_factory(**kwargs):
+        return Agent()
+
+    async def runner_factory(thread_id):
+        return FakeRunner()
+
+    async def run_preparer(work_dir):
+        return PreparedRun(
+            work_dir="/workspace/open-swe",
+            checks=(
+                ValidationCheck(
+                    name="tests",
+                    command=("pytest", "-q"),
+                ),
+            ),
+        )
+
+    async def publisher(
+        *,
+        thread_id,
+        task,
+        work_dir,
+    ):
+        captured["publisher"] = {
+            "thread_id": thread_id,
+            "task": task,
+            "work_dir": work_dir,
+        }
+
+    service = build_server_orchestration_service(
+        thread_id="thread-publish",
+        backend=object(),
+        tools=[],
+        model_factory=lambda model_id: object(),
+        agent_factory=agent_factory,
+        runner_factory=runner_factory,
+        run_preparer=run_preparer,
+        publisher=publisher,
+        execution_guard=lambda: None,
+        checks=(),
+    )
+
+    task = "Implement a REST API backed by the database."
+
+    result = await service.run(
+        task=task,
+        work_dir="/workspace",
+    )
+
+    assert result.state.status.value == "succeeded"
+    assert captured["publisher"] == {
+        "thread_id": "thread-publish",
+        "task": task,
+        "work_dir": "/workspace/open-swe",
+    }

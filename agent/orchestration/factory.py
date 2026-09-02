@@ -16,6 +16,7 @@ from .runtime_dependencies import (
     SpecialistRuntimeDependencies,
     build_specialist_runtime_dependencies,
 )
+from .runtime_publisher import build_runtime_publisher
 from .runtime_service import (
     build_runtime_orchestration_service,
 )
@@ -137,6 +138,11 @@ async def get_orchestrator(
         context,
     )
 
+    publisher = build_runtime_publisher(
+        config,
+        context,
+    )
+
     service = service_factory(
         context,
         tools=dependencies.tools,
@@ -146,6 +152,7 @@ async def get_orchestrator(
         model_effort=dependencies.model_effort,
         checks=(),
         run_preparer=run_preparer,
+        publisher=publisher,
     )
 
     return build_orchestrator_graph(

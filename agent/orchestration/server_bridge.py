@@ -16,6 +16,7 @@ from agent.validation import (
 
 from .coordinator import (
     CoordinatorResult,
+    TaskPublisher,
     run_orchestrated_task,
 )
 from .execution_safety import assert_isolated_execution_environment
@@ -49,6 +50,7 @@ class RoutedOrchestrationService:
     checks: tuple[ValidationCheck, ...]
     runner_factory: RunnerFactory | None = None
     run_preparer: RunPreparer | None = None
+    publisher: TaskPublisher | None = None
     execution_guard: ExecutionGuard = assert_isolated_execution_environment
 
     async def run(
@@ -85,6 +87,9 @@ class RoutedOrchestrationService:
         if self.runner_factory is not None:
             kwargs["runner_factory"] = self.runner_factory
 
+        if self.publisher is not None:
+            kwargs["publisher"] = self.publisher
+
         return await run_orchestrated_task(**kwargs)
 
 
@@ -101,6 +106,7 @@ def build_server_orchestration_service(
     agent_factory: AgentFactory | None = None,
     runner_factory: RunnerFactory | None = None,
     run_preparer: RunPreparer | None = None,
+    publisher: TaskPublisher | None = None,
     execution_guard: ExecutionGuard = assert_isolated_execution_environment,
 ) -> RoutedOrchestrationService:
     """Build a coordinator service from the live Open SWE server context."""
@@ -127,5 +133,6 @@ def build_server_orchestration_service(
         checks=tuple(checks),
         runner_factory=runner_factory,
         run_preparer=run_preparer,
+        publisher=publisher,
         execution_guard=execution_guard,
     )

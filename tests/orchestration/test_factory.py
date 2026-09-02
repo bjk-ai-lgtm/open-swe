@@ -96,6 +96,7 @@ async def test_factory_builds_execution_graph_from_runtime_context():
     assert captured["context"] is context
     assert captured["kwargs"]["checks"] == ()
     assert callable(captured["kwargs"]["run_preparer"])
+    assert callable(captured["kwargs"]["publisher"])
 
     assert service.calls == [
         {

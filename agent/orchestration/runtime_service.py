@@ -9,6 +9,7 @@ from agent.runtime import DEFAULT_LLM_MAX_TOKENS
 from agent.validation import ValidationCheck
 
 from .bootstrap import OrchestratorRuntimeContext
+from .coordinator import TaskPublisher
 from .execution_safety import assert_isolated_execution_environment
 from .model_factory import build_orchestration_model_factory
 from .server_bridge import (
@@ -36,6 +37,7 @@ def build_runtime_orchestration_service(
     agent_factory: AgentFactory | None = None,
     runner_factory: RunnerFactory | None = None,
     run_preparer: RunPreparer | None = None,
+    publisher: TaskPublisher | None = None,
     execution_guard: ExecutionGuard = assert_isolated_execution_environment,
 ) -> RoutedOrchestrationService:
     """Build an orchestration service bound to one Open SWE thread."""
@@ -64,5 +66,6 @@ def build_runtime_orchestration_service(
         agent_factory=agent_factory,
         runner_factory=runner_factory,
         run_preparer=run_preparer,
+        publisher=publisher,
         execution_guard=execution_guard,
     )

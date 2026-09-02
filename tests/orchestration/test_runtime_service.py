@@ -209,3 +209,29 @@ async def test_runtime_service_forwards_run_preparer() -> None:
     assert captured["validation_work_dir"] == (
         "/workspace/open-swe"
     )
+
+
+def test_runtime_service_forwards_publisher() -> None:
+    context = OrchestratorRuntimeContext(
+        thread_id="thread-publisher-runtime",
+        sandbox_backend=object(),
+        work_dir="/workspace",
+    )
+
+    async def publisher(
+        *,
+        thread_id,
+        task,
+        work_dir,
+    ):
+        del thread_id, task, work_dir
+
+    service = build_runtime_orchestration_service(
+        context,
+        tools=[],
+        checks=(),
+        model_factory=lambda model_id: object(),
+        publisher=publisher,
+    )
+
+    assert service.publisher is publisher
