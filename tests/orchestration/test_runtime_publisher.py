@@ -1,6 +1,9 @@
 from collections import deque
+from typing import cast
 
 import pytest
+from deepagents.backends.protocol import SandboxBackendProtocol
+from langgraph.graph.state import RunnableConfig
 
 from agent.orchestration.bootstrap import (
     OrchestratorRuntimeContext,
@@ -55,7 +58,10 @@ def make_publisher(
     *,
     pr_result=None,
 ):
-    backend = object()
+    backend = cast(
+        SandboxBackendProtocol,
+        object(),
+    )
 
     context = OrchestratorRuntimeContext(
         thread_id="thread-1",
@@ -63,7 +69,7 @@ def make_publisher(
         work_dir="/workspace",
     )
 
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "thread_id": "thread-1",
             "repo": {
@@ -306,6 +312,89 @@ async def test_publisher_surfaces_native_pr_failure() -> None:
 
     assert not executor.steps
     assert len(opened) == 1
+
+
+async def test_publisher_replay_recovers_after_lost_pr_response() -> None:
+    publisher, executor, opened = make_publisher(
+        [
+            # First publication attempt.
+            ("git status --porcelain", 0, ""),
+            ("git merge-base --is-ancestor", 0, ""),
+            ("git rev-list --count", 0, "1\n"),
+            ("git diff --name-only", 0, ""),
+            ("git rev-parse HEAD", 0, "abc123\n"),
+            (
+                "git ls-remote --heads",
+                0,
+                "abc123\trefs/heads/open-swe/thread-1\n",
+            ),
+            # Replay after the PR side effect succeeded
+            # but its response was lost.
+            ("git status --porcelain", 0, ""),
+            ("git merge-base --is-ancestor", 0, ""),
+            ("git rev-list --count", 0, "1\n"),
+            ("git diff --name-only", 0, ""),
+            ("git rev-parse HEAD", 0, "abc123\n"),
+            (
+                "git ls-remote --heads",
+                0,
+                "abc123\trefs/heads/open-swe/thread-1\n",
+            ),
+        ]
+    )
+
+    calls = 0
+
+    async def ambiguous_pr_opener(**kwargs):
+        nonlocal calls
+
+        calls += 1
+        opened.append(kwargs)
+
+        if calls == 1:
+            raise RuntimeError(
+                "simulated lost PR response"
+            )
+
+        return {
+            "success": True,
+            "created": False,
+            "url": "https://example.test/pr/9",
+            "number": 9,
+        }
+
+    publisher.pr_opener = ambiguous_pr_opener
+
+    with pytest.raises(
+        RuntimeError,
+        match="simulated lost PR response",
+    ):
+        await publisher(
+            thread_id="thread-1",
+            task="Implement the API",
+            work_dir="/workspace/open-swe",
+        )
+
+    await publisher(
+        thread_id="thread-1",
+        task="Implement the API",
+        work_dir="/workspace/open-swe",
+    )
+
+    assert not executor.steps
+    assert calls == 2
+    assert len(opened) == 2
+
+    assert not any(
+        "git commit " in command
+        for command in executor.commands
+    )
+
+    assert not any(
+        "git push " in command
+        for command in executor.commands
+    )
+
 
 
 async def test_publisher_rejects_wrong_prepared_work_dir() -> None:
